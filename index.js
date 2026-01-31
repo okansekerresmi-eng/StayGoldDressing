@@ -158,7 +158,18 @@ async function clickConfirmButton(page, timeout = 45000) {
   // 3) Extra guarantee
   await page.keyboard.press("Enter");
 }
+async function markBioDone(sheets, row) {
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!E${row}`,
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [["BIO"]],
+    },
+  });
 
+  console.log(`🧾 E${row} → BIO`);
+}
 
 async function getRandomInstagramAccount() {
   const auth = new google.auth.GoogleAuth({
@@ -274,6 +285,24 @@ async function forceClickNotNow(page, timeout = 20000) {
     console.log("ℹ️ Not now popup yok / atlandı");
   }
 }
+function runBioUploader() {
+  return new Promise((resolve) => {
+    console.log("🧬 bio.js çalıştırılıyor...");
+
+    exec(
+      `node "${path.join(__dirname, "bio.js")}"`,
+      (err, stdout, stderr) => {
+        if (err) {
+          console.error("❌ bio.js hata verdi:", err.message);
+        }
+        if (stdout) console.log("[bio.js stdout]", stdout);
+        if (stderr) console.error("[bio.js stderr]", stderr);
+        resolve();
+      }
+    );
+  });
+}
+
 function startHumanConfirmWatcher(page, sheets, username, row) {
   let stopped = false;
 
@@ -383,7 +412,15 @@ async function hasProfilePhoto(page) {
     return false;
   });
 }
+async function getBioStatusFromSheet(sheets, row) {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!E${row}`,
+  });
 
+  const val = res.data.values?.[0]?.[0] || "";
+  return val.trim().toUpperCase(); // "BIO" ya da ""
+}
 async function typeFirstAvailable(page, selectors, text) {
   for (const selector of selectors) {
     try {
@@ -517,7 +554,7 @@ async function clickByText(page, textRegex) {
     // 7️⃣ Sheet’ten rastgele hesap al
     const { username, password, rawSecret, row } =
       await getRandomInstagramAccount();
-      
+
     startHumanConfirmWatcher(page, sheets, username, row);
     console.log("📸 Login yapılacak IG:", username);
 
@@ -581,25 +618,31 @@ async function clickByText(page, textRegex) {
     console.log("✅ Profil açıldı");
 
     // LOGIN SONRASI PROFİL FOTO KONTROL
+
     const hasPPAfterLogin = await hasProfilePhoto(page);
 
     if (hasPPAfterLogin) {
       console.log("🖼️ Profil foto VAR (login sonrası)");
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID,
-        range: `${SHEET_NAME}!D${row}`,
-        valueInputOption: "RAW",
-        requestBody: {
-          values: [["PP var"]],
-        },
-      });
-
-      console.log(`📝 D${row} → PP var`);
     } else {
-      console.log("⚠️ Profil foto YOK (login sonrası) → profile.js çalıştırılıyor");
-      await runProfileUploader();
+      console.log("⚠️ Profil foto YOK → profile.js çalıştırılıyor");
+      await runProfileUploader(); // ⛔ önce PP
     }
+
+    // 🔍 BIO durumu kontrol (E sütunu)
+    const bioStatus = await getBioStatusFromSheet(sheets, row);
+
+    if (bioStatus !== "BIO") {
+      console.log("🧬 BIO yok → bio.js çalıştırılacak");
+
+      // profile.js çalıştıysa onun bitmesini bekledik zaten
+      await runBioUploader();
+
+      // BIO işaretle
+      await markBioDone(sheets, row);
+    } else {
+      console.log("ℹ️ BIO zaten var → bio.js atlandı");
+    }
+
 
     // B sütunu → +
     await sheets.spreadsheets.values.update({

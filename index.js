@@ -362,6 +362,36 @@ async function clickByText(page, textRegex) {
     el.click();
   }, textRegex);
 }
+async function clickNotNowIfExists(page, timeout = 15000) {
+  const rx = "^(not now|şimdi değil|daha sonra)$";
+
+  try {
+    await page.waitForFunction(
+      (pattern) => {
+        const r = new RegExp(pattern, "i");
+        return [...document.querySelectorAll("button, div, span, [role='button']")]
+          .some(el => el.offsetParent && r.test(el.innerText || ""));
+      },
+      { timeout },
+      rx
+    );
+
+    await page.evaluate((pattern) => {
+      const r = new RegExp(pattern, "i");
+      const el = [...document.querySelectorAll("button, div, span, [role='button']")]
+        .find(e => e.offsetParent && r.test(e.innerText || ""));
+      if (el) {
+        el.scrollIntoView({ block: "center" });
+        el.click();
+      }
+    }, rx);
+
+    console.log("🚫 Not Now / Şimdi Değil tıklandı");
+    await page.waitForTimeout(2000);
+  } catch {
+    // çıkmazsa sessizce geç
+  }
+}
 
 /* ================= MAIN ================= */
 (async () => {
@@ -491,7 +521,9 @@ async function clickByText(page, textRegex) {
     );
 
     await clickConfirmButton(page);
-
+    
+    await clickNotNowIfExists(page);
+    await clickNotNowIfExists(page);
     /* ================= PROFIL CHECK ================= */
     await page.waitForFunction(
       (u) =>

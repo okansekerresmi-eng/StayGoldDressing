@@ -239,6 +239,41 @@ async function markUserOnline(sheets, username) {
   console.log(`🟢 ${username} → C${rowNumber} = online`);
 }
 
+async function forceClickNotNow(page, timeout = 20000) {
+  try {
+    await page.waitForFunction(() => {
+      return [...document.querySelectorAll('[role="button"]')]
+        .some(el =>
+          el.offsetParent &&
+          el.textContent &&
+          el.textContent.trim().toLowerCase() === "not now"
+        );
+    }, { timeout });
+
+    await page.evaluate(() => {
+      const el = [...document.querySelectorAll('[role="button"]')]
+        .find(e =>
+          e.offsetParent &&
+          e.textContent &&
+          e.textContent.trim().toLowerCase() === "not now"
+        );
+
+      if (!el) throw new Error("Not now bulunamadı");
+
+      el.scrollIntoView({ block: "center" });
+
+      // gerçek kullanıcı click simülasyonu
+      el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    console.log("🚫 NOT NOW (role=button) tıklandı");
+    await page.waitForTimeout(1500);
+  } catch {
+    console.log("ℹ️ Not now popup yok / atlandı");
+  }
+}
 
 async function clickLoginButton(page, timeout = 45000) {
   await page.waitForFunction(
@@ -361,36 +396,6 @@ async function clickByText(page, textRegex) {
     el.scrollIntoView({ block: "center" });
     el.click();
   }, textRegex);
-}
-async function clickNotNowIfExists(page, timeout = 15000) {
-  const rx = "^(not now|şimdi değil|daha sonra)$";
-
-  try {
-    await page.waitForFunction(
-      (pattern) => {
-        const r = new RegExp(pattern, "i");
-        return [...document.querySelectorAll("button, div, span, [role='button']")]
-          .some(el => el.offsetParent && r.test(el.innerText || ""));
-      },
-      { timeout },
-      rx
-    );
-
-    await page.evaluate((pattern) => {
-      const r = new RegExp(pattern, "i");
-      const el = [...document.querySelectorAll("button, div, span, [role='button']")]
-        .find(e => e.offsetParent && r.test(e.innerText || ""));
-      if (el) {
-        el.scrollIntoView({ block: "center" });
-        el.click();
-      }
-    }, rx);
-
-    console.log("🚫 Not Now / Şimdi Değil tıklandı");
-    await page.waitForTimeout(2000);
-  } catch {
-    // çıkmazsa sessizce geç
-  }
 }
 
 /* ================= MAIN ================= */
@@ -521,9 +526,10 @@ async function clickNotNowIfExists(page, timeout = 15000) {
     );
 
     await clickConfirmButton(page);
+    await page.waitForTimeout(1000);
+    await forceClickNotNow(page);
+    await forceClickNotNow(page); // Instagram bazen 2 popup atıyor
     
-    await clickNotNowIfExists(page);
-    await clickNotNowIfExists(page);
     /* ================= PROFIL CHECK ================= */
     await page.waitForFunction(
       (u) =>

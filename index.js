@@ -274,6 +274,44 @@ async function forceClickNotNow(page, timeout = 20000) {
     console.log("ℹ️ Not now popup yok / atlandı");
   }
 }
+function startHumanConfirmWatcher(page, sheets, username, row) {
+  let stopped = false;
+
+  const interval = setInterval(async () => {
+    if (stopped) return;
+
+    try {
+      const flagged = await page.evaluate((u) => {
+        const spans = [...document.querySelectorAll("span[role='heading']")];
+        return spans.some(s =>
+          s.innerText &&
+          s.innerText.toLowerCase().includes("confirm you're human") &&
+          s.innerText.includes(u)
+        );
+      }, username);
+
+      if (flagged) {
+        stopped = true;
+        clearInterval(interval);
+
+        console.log("🚩 HUMAN CONFIRM TESPİT EDİLDİ → FLAGGED");
+
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID,
+          range: `${SHEET_NAME}!C${row}`,
+          valueInputOption: "RAW",
+          requestBody: {
+            values: [["Flagged"]],
+          },
+        });
+
+        console.log(`🚩 C${row} → Flagged`);
+      }
+    } catch (e) {
+      // sessiz geç — navigation sırasında hata olabilir
+    }
+  }, 1500); // ⏱️ 1.5 saniyede bir kontrol
+}
 
 async function clickLoginButton(page, timeout = 45000) {
   await page.waitForFunction(
@@ -479,7 +517,8 @@ async function clickByText(page, textRegex) {
     // 7️⃣ Sheet’ten rastgele hesap al
     const { username, password, rawSecret, row } =
       await getRandomInstagramAccount();
-
+      
+    startHumanConfirmWatcher(page, sheets, username, row);
     console.log("📸 Login yapılacak IG:", username);
 
     await page.goto(INSTAGRAM_LOGIN_URL, {

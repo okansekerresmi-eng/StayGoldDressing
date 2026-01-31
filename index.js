@@ -539,14 +539,29 @@ async function clickByText(page, textRegex) {
     const loggedUser = await getLoggedInUsernameIfExists(page);
 
     if (loggedUser) {
+      // ⛔ Önce suspended kontrolü
       if (await checkIfSuspended(page)) {
         console.log("⛔ Login var ama hesap SUSPENDED");
+
+        const res = await sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: `${SHEET_NAME}!A:A`,
+        });
+
+        const rows = res.data.values || [];
+        const rowIndex = rows.findIndex(r =>
+          r[0] && r[0].split("-")[0].trim() === loggedUser
+        );
+
+        if (rowIndex !== -1) {
+          await markSuspended(sheets, rowIndex + 1);
+        }
+
         return;
       }
 
+      // ✅ Suspend değil → online
       console.log("✅ Zaten giriş yapılmış:", loggedUser);
-
-      // Sheet → online
       await markUserOnline(sheets, loggedUser);
 
       // Profil foto kontrol
@@ -555,7 +570,6 @@ async function clickByText(page, textRegex) {
       if (hasPP) {
         console.log("🖼️ Profil foto VAR");
 
-        // D sütunu → PP var
         const res = await sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
           range: `${SHEET_NAME}!A:A`,
@@ -586,6 +600,7 @@ async function clickByText(page, textRegex) {
       console.log("⛔ Login atlandı, script bitti.");
       return;
     }
+
 
     /* ================= LOGIN FLOW ================= */
 

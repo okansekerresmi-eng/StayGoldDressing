@@ -341,6 +341,33 @@ function startHumanConfirmWatcher(page, sheets, username, row) {
     }
   }, 1500); // ⏱️ 1.5 saniyede bir kontrol
 }
+async function checkIfSuspended(page) {
+  const url = page.url();
+  if (url.includes("/accounts/suspended")) return true;
+
+  return await page.evaluate(() => {
+    const t = (document.body?.innerText || "").toLowerCase();
+    return (
+      location.pathname.includes("/accounts/suspended") ||
+      t.includes("account has been suspended") ||
+      t.includes("we suspended your account") ||
+      t.includes("suspended")
+    );
+  });
+}
+
+async function markSuspended(sheets, row) {
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!C${row}`,
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [["SUSPENDED"]],
+    },
+  });
+
+  console.log(`⛔ C${row} → SUSPENDED`);
+}
 
 async function clickLoginButton(page, timeout = 45000) {
   await page.waitForFunction(
@@ -501,11 +528,22 @@ async function clickByText(page, textRegex) {
     await page.goto("https://www.instagram.com/", {
       waitUntil: "domcontentloaded",
     });
+    // ⛔ SUSPEND KONTROL (ANA SAYFA)
+    if (await checkIfSuspended(page)) {
+      console.log("⛔ Hesap SUSPENDED (ana sayfa)");
 
+      // Sheet’ten rastgele seçilen hesap henüz yok → sadece çık
+      return;
+    }
     // 6️⃣ ZATEN LOGIN VAR MI?
     const loggedUser = await getLoggedInUsernameIfExists(page);
 
     if (loggedUser) {
+      if (await checkIfSuspended(page)) {
+        console.log("⛔ Login var ama hesap SUSPENDED");
+        return;
+      }
+
       console.log("✅ Zaten giriş yapılmış:", loggedUser);
 
       // Sheet → online
@@ -561,6 +599,15 @@ async function clickByText(page, textRegex) {
     await page.goto(INSTAGRAM_LOGIN_URL, {
       waitUntil: "domcontentloaded",
     });
+    // ⛔ SUSPEND KONTROL (LOGIN SAYFASI)
+    if (await checkIfSuspended(page)) {
+      console.log("⛔ Hesap SUSPENDED (login sayfası)");
+
+      // Sheet’ten çektiğin hesabı işaretle
+      await markSuspended(sheets, row);
+      return;
+    }
+
 
     // USERNAME
     await typeFirstAvailable(
@@ -603,8 +650,21 @@ async function clickByText(page, textRegex) {
 
     await clickConfirmButton(page);
     await page.waitForTimeout(1000);
+    // ⛔ SUSPEND KONTROL (LOGIN SONRASI)
+    if (await checkIfSuspended(page)) {
+      console.log("⛔ Hesap SUSPENDED (login sonrası)");
+
+      await markSuspended(sheets, row);
+      return;
+    }
+
     await forceClickNotNow(page);
     await forceClickNotNow(page); // Instagram bazen 2 popup atıyor
+    if (await checkIfSuspended(page)) {
+        console.log("⛔ Hesap SUSPENDED (popup sonrası)");
+        await markSuspended(sheets, row);
+        return;
+      }
     
     /* ================= PROFIL CHECK ================= */
     await page.waitForFunction(

@@ -186,7 +186,7 @@ async function clickSuspendedIcon(page) {
     icon.click();
   });
 
-  await page.waitForTimeout(1000);
+  await sleep(1000);
 }
 async function getUsernameFromLogoutText(page) {
   return await page.evaluate(() => {
@@ -343,7 +343,7 @@ async function forceClickNotNow(page, timeout = 20000) {
     });
 
     console.log("🚫 NOT NOW (role=button) tıklandı");
-    await page.waitForTimeout(1500);
+    await sleep(1500);
   } catch {
     console.log("ℹ️ Not now popup yok / atlandı");
   }
@@ -700,7 +700,7 @@ async function clickByText(page, textRegex) {
     );
 
     await clickConfirmButton(page);
-    await page.waitForTimeout(1000);
+    await sleep(1000);
 
     if (await checkIfSuspended(page)) {
       console.log("⛔ Hesap SUSPENDED (login sonrası)");

@@ -170,6 +170,69 @@ async function markBioDone(sheets, row) {
 
   console.log(`🧾 E${row} → BIO`);
 }
+async function clickSuspendedIcon(page) {
+  await page.waitForSelector(
+    'div[data-bloks-name="ig.components.Icon"]',
+    { timeout: 15000 }
+  );
+
+  await page.evaluate(() => {
+    const icon = document.querySelector(
+      'div[data-bloks-name="ig.components.Icon"]'
+    );
+    if (!icon) throw new Error("Suspended icon bulunamadı");
+
+    icon.scrollIntoView({ block: "center" });
+    icon.click();
+  });
+
+  await page.waitForTimeout(1000);
+}
+async function getUsernameFromLogoutText(page) {
+  return await page.evaluate(() => {
+    const span = [...document.querySelectorAll(
+      'span[data-bloks-name="bk.components.Text"]'
+    )].find(s =>
+      s.innerText &&
+      s.innerText.toLowerCase().startsWith("log out")
+    );
+
+    if (!span) return null;
+
+    // "Log out nurayseyfettin777"
+    return span.innerText.replace(/log out/i, "").trim();
+  });
+}
+async function markSuspendedByUsername(sheets, username) {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!A:A`,
+  });
+
+  const rows = res.data.values || [];
+
+  const index = rows.findIndex(r =>
+    r[0] && r[0].split("-")[0].trim() === username
+  );
+
+  if (index === -1) {
+    console.log("⚠️ Sheet’te kullanıcı bulunamadı:", username);
+    return;
+  }
+
+  const rowNumber = index + 1;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!C${rowNumber}`,
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [["SUSPENDED"]],
+    },
+  });
+
+  console.log(`⛔ ${username} → C${rowNumber} = SUSPENDED`);
+}
 
 async function getRandomInstagramAccount() {
   const auth = new google.auth.GoogleAuth({
@@ -528,72 +591,45 @@ async function clickByText(page, textRegex) {
     await page.goto("https://www.instagram.com/", {
       waitUntil: "domcontentloaded",
     });
-    // ⛔ SUSPEND KONTROL (ANA SAYFA)
+
+    /* ================= SUSPEND KONTROL (ANA SAYFA) ================= */
     if (await checkIfSuspended(page)) {
       console.log("⛔ Hesap SUSPENDED (ana sayfa)");
 
-      // Sheet’ten rastgele seçilen hesap henüz yok → sadece çık
+      await clickSuspendedIcon(page);
+      const suspendedUsername = await getUsernameFromLogoutText(page);
+
+      if (suspendedUsername) {
+        await markSuspendedByUsername(sheets, suspendedUsername);
+      }
+
       return;
     }
-    // 6️⃣ ZATEN LOGIN VAR MI?
+
+    /* ================= ZATEN LOGIN VAR MI ================= */
     const loggedUser = await getLoggedInUsernameIfExists(page);
 
     if (loggedUser) {
-      // ⛔ Önce suspended kontrolü
       if (await checkIfSuspended(page)) {
         console.log("⛔ Login var ama hesap SUSPENDED");
 
-        const res = await sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID,
-          range: `${SHEET_NAME}!A:A`,
-        });
+        await clickSuspendedIcon(page);
+        const suspendedUsername = await getUsernameFromLogoutText(page);
 
-        const rows = res.data.values || [];
-        const rowIndex = rows.findIndex(r =>
-          r[0] && r[0].split("-")[0].trim() === loggedUser
-        );
-
-        if (rowIndex !== -1) {
-          await markSuspended(sheets, rowIndex + 1);
+        if (suspendedUsername) {
+          await markSuspendedByUsername(sheets, suspendedUsername);
         }
 
         return;
       }
 
-      // ✅ Suspend değil → online
       console.log("✅ Zaten giriş yapılmış:", loggedUser);
       await markUserOnline(sheets, loggedUser);
 
-      // Profil foto kontrol
       const hasPP = await hasProfilePhoto(page);
 
-      if (hasPP) {
-        console.log("🖼️ Profil foto VAR");
-
-        const res = await sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID,
-          range: `${SHEET_NAME}!A:A`,
-        });
-
-        const rows = res.data.values || [];
-        const rowIndex = rows.findIndex(r =>
-          r[0] && r[0].split("-")[0].trim() === loggedUser
-        );
-
-        if (rowIndex !== -1) {
-          await sheets.spreadsheets.values.update({
-            spreadsheetId: SHEET_ID,
-            range: `${SHEET_NAME}!D${rowIndex + 1}`,
-            valueInputOption: "RAW",
-            requestBody: {
-              values: [["PP var"]],
-            },
-          });
-
-          console.log(`📝 D${rowIndex + 1} → PP var`);
-        }
-      } else {
-        console.log("⚠️ Profil foto YOK → profile.js çalıştırılıyor");
+      if (!hasPP) {
+        console.log("⚠️ Profil foto YOK → profile.js");
         await runProfileUploader();
       }
 
@@ -601,10 +637,8 @@ async function clickByText(page, textRegex) {
       return;
     }
 
-
     /* ================= LOGIN FLOW ================= */
 
-    // 7️⃣ Sheet’ten rastgele hesap al
     const { username, password, rawSecret, row } =
       await getRandomInstagramAccount();
 
@@ -614,15 +648,19 @@ async function clickByText(page, textRegex) {
     await page.goto(INSTAGRAM_LOGIN_URL, {
       waitUntil: "domcontentloaded",
     });
-    // ⛔ SUSPEND KONTROL (LOGIN SAYFASI)
+
     if (await checkIfSuspended(page)) {
       console.log("⛔ Hesap SUSPENDED (login sayfası)");
 
-      // Sheet’ten çektiğin hesabı işaretle
-      await markSuspended(sheets, row);
+      await clickSuspendedIcon(page);
+      const suspendedUsername = await getUsernameFromLogoutText(page);
+
+      if (suspendedUsername) {
+        await markSuspendedByUsername(sheets, suspendedUsername);
+      }
+
       return;
     }
-
 
     // USERNAME
     await typeFirstAvailable(
@@ -655,8 +693,6 @@ async function clickByText(page, textRegex) {
     });
 
     const code = generate2FA(rawSecret);
-    console.log("🔐 2FA Kod:", code);
-
     await typeFirstAvailable(
       page,
       ['input[name="verificationCode"]', 'input[type="tel"]'],
@@ -665,22 +701,36 @@ async function clickByText(page, textRegex) {
 
     await clickConfirmButton(page);
     await page.waitForTimeout(1000);
-    // ⛔ SUSPEND KONTROL (LOGIN SONRASI)
+
     if (await checkIfSuspended(page)) {
       console.log("⛔ Hesap SUSPENDED (login sonrası)");
 
-      await markSuspended(sheets, row);
+      await clickSuspendedIcon(page);
+      const suspendedUsername = await getUsernameFromLogoutText(page);
+
+      if (suspendedUsername) {
+        await markSuspendedByUsername(sheets, suspendedUsername);
+      }
+
       return;
     }
 
     await forceClickNotNow(page);
-    await forceClickNotNow(page); // Instagram bazen 2 popup atıyor
+    await forceClickNotNow(page);
+
     if (await checkIfSuspended(page)) {
-        console.log("⛔ Hesap SUSPENDED (popup sonrası)");
-        await markSuspended(sheets, row);
-        return;
+      console.log("⛔ Hesap SUSPENDED (popup sonrası)");
+
+      await clickSuspendedIcon(page);
+      const suspendedUsername = await getUsernameFromLogoutText(page);
+
+      if (suspendedUsername) {
+        await markSuspendedByUsername(sheets, suspendedUsername);
       }
-    
+
+      return;
+    }
+
     /* ================= PROFIL CHECK ================= */
     await page.waitForFunction(
       (u) =>
@@ -692,34 +742,17 @@ async function clickByText(page, textRegex) {
 
     console.log("✅ Profil açıldı");
 
-    // LOGIN SONRASI PROFİL FOTO KONTROL
-
     const hasPPAfterLogin = await hasProfilePhoto(page);
-
-    if (hasPPAfterLogin) {
-      console.log("🖼️ Profil foto VAR (login sonrası)");
-    } else {
-      console.log("⚠️ Profil foto YOK → profile.js çalıştırılıyor");
-      await runProfileUploader(); // ⛔ önce PP
+    if (!hasPPAfterLogin) {
+      await runProfileUploader();
     }
 
-    // 🔍 BIO durumu kontrol (E sütunu)
     const bioStatus = await getBioStatusFromSheet(sheets, row);
-
     if (bioStatus !== "BIO") {
-      console.log("🧬 BIO yok → bio.js çalıştırılacak");
-
-      // profile.js çalıştıysa onun bitmesini bekledik zaten
       await runBioUploader();
-
-      // BIO işaretle
       await markBioDone(sheets, row);
-    } else {
-      console.log("ℹ️ BIO zaten var → bio.js atlandı");
     }
 
-
-    // B sütunu → +
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
       range: `${SHEET_NAME}!B${row}`,
